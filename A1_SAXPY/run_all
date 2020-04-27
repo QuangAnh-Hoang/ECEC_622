@@ -1,0 +1,21 @@
+#!/bin/bash
+
+###################
+## 10^9 elements ##
+###################
+
+for i in {1..100}
+do
+    ./saxpy 1000000000 4 >> performance
+done
+
+for i in {1..100}
+do
+    ./saxpy 1000000000 8 >> performance
+done
+
+for i in {1..100}
+do
+    ./saxpy 1000000000 16 >> performance
+done
+
