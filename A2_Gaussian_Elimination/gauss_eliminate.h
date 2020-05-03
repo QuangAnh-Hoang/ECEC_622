@@ -8,25 +8,18 @@ typedef struct {
     float* elements;            /* Pointer to the first element of the matrix */
 } Matrix;
 
-typedef struct args_for_div_t
-{
-    unsigned int tid;
-    unsigned int dim;
-    unsigned int chunksize;
-    unsigned int num_threads;
-    unsigned int current_row;
-    float root_value;
-    float *U;
-} args_for_div_t;
+/* Structure that defines the barrier */
+typedef struct barrier_s {
+    sem_t counter_sem;          /* Protects access to the counter */
+    sem_t barrier_sem;          /* Signals that barrier is safe to cross */
+    int counter;                /* The value itself */
+} barrier_t;
 
-typedef struct args_for_eli_t
-{
+typedef struct arg_for_thread_t {
     unsigned int tid;
-    unsigned int dim;
-    unsigned int current_row;
     unsigned int num_threads;
-    float *U;
-} args_for_eli_t;
+    Matrix *A;
+}arg_for_thread_t;
 
 #endif /* _MATRIXMUL_H_ */
 
