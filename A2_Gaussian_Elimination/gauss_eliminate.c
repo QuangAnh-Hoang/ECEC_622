@@ -3,12 +3,15 @@
  * Author: Naga Kandasamy
  * Date of last update: April 22, 2020
  *
- * Student names(s): FIXME
- * Date: FIXME
+ * Student names(s): Quang Anh Hoang
+ * Date: May 6th, 2020
  *
  * Compile as follows: 
  * gcc -o gauss_eliminate gauss_eliminate.c compute_gold.c -O3 -Wall -lpthread -lm
  */
+
+#define _REENTRANT /* Make sure the library functions are MT (muti-thread) safe */
+#define _GNU_SOURCE
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -16,6 +19,7 @@
 #include <sys/time.h>
 #include <string.h>
 #include <math.h>
+#include <semaphore.h>
 #include <pthread.h>
 #include "gauss_eliminate.h"
 
@@ -31,6 +35,7 @@ void print_matrix(const Matrix);
 float get_random_number(int, int);
 int check_results(float *, float *, int, float);
 
+pthread_barrier_t barrier_for_threads;
 
 int main(int argc, char **argv)
 {
@@ -69,8 +74,9 @@ int main(int argc, char **argv)
     int status = compute_gold(U_reference.elements, A.num_rows);
   
     gettimeofday(&stop, NULL);
-    fprintf(stderr, "CPU run time = %0.2f s\n", (float)(stop.tv_sec - start.tv_sec\
-                + (stop.tv_usec - start.tv_usec) / (float)1000000));
+    float ref_time = (float)(stop.tv_sec - start.tv_sec \
+                + (stop.tv_usec - start.tv_usec) / (float)1000000);
+    fprintf(stderr, "CPU run time = %0.6f s\n", ref_time);
 
     if (status < 0) {
         fprintf(stderr, "Failed to convert given matrix to upper triangular. Try again.\n");
@@ -87,17 +93,28 @@ int main(int argc, char **argv)
     /* FIXME: Perform Gaussian elimination using pthreads. 
      * The resulting upper triangular matrix should be returned in U_mt */
     fprintf(stderr, "\nPerforming gaussian elimination using pthreads\n");
+
+    gettimeofday(&start, NULL);
+
     gauss_eliminate_using_pthreads(U_mt, num_threads);
+    
+    gettimeofday(&stop, NULL);
+
+    float mt_time = (float)(stop.tv_sec - start.tv_sec \
+                + (stop.tv_usec - start.tv_usec) / (float)1000000);
+    fprintf(stderr, "MT run time = %0.6f s\n", mt_time);
+
+    float speedup = ref_time / mt_time;
+
+    fprintf(stderr, "Speedup = %0.6f times\n", speedup);
 
     /* Check if pthread result matches reference solution within specified tolerance */
     fprintf(stderr, "\nChecking results\n");
     int size = matrix_size * matrix_size;
     int res = check_results(U_reference.elements, U_mt.elements, size, 1e-6);
-
-    fprintf(stderr, "\nReference: \n");
-    print_matrix(U_reference);
-
     fprintf(stderr, "TEST %s\n", (0 == res) ? "PASSED" : "FAILED");
+
+    printf("\n%d\t%d\t%0.6f", matrix_size, num_threads, speedup);
 
     /* Free memory allocated for matrices */
     free(A.elements);
@@ -107,113 +124,114 @@ int main(int argc, char **argv)
     exit(EXIT_SUCCESS);
 }
 
-void divide(void *args) {
-    args_for_div_t *thread_data = (args_for_div_t *) args;
+void divide(int tid, int num_threads, int current_row, Matrix *A) {
     int i;
-    int offset = thread_data->tid*thread_data->chunksize;
-    int endpoint;
-    if (thread_data->tid < (thread_data->num_threads - 1)) {
-        for (i = offset; i < offset + thread_data->chunksize; i++) {
-            if (i < thread_data->current_row) {
-                thread_data->U[thread_data->current_row*thread_data->dim + i] = 0;
+    int chunksize;
+    float root_value = A->elements[A->num_columns*current_row + current_row];
+    int remaining_elements = A->num_columns - current_row;
+    if (remaining_elements < num_threads) {
+        if (tid < remaining_elements) {
+            chunksize = 1;
+        }
+        else {
+            chunksize = 0;
+        }
+    }
+    else {
+        chunksize = (int) floor (remaining_elements/num_threads);        
+    }
+    int offset = current_row + tid*chunksize + 1;
+    if (chunksize > 0) {
+        if (tid < num_threads-1) {
+            for (i = offset; i < offset + chunksize; i++) {
+                A->elements[current_row*A->num_columns + i] = (float)\
+                    A->elements[current_row*A->num_columns + i]/root_value;
             }
-            else {
-                thread_data->U[thread_data->current_row*thread_data->dim + i] = (float)\
-                    thread_data->U[thread_data->current_row*thread_data->dim + i]/thread_data->root_value;                
+        }
+        else {
+            for (i = offset; i < A->num_columns; i++) {
+                A->elements[current_row*A->num_columns + i] = (float)\
+                    A->elements[current_row*A->num_columns + i]/root_value;
+            }
+        }
+    }
+}
+
+void eliminate(int tid, int num_threads, int current_row, Matrix *A) {
+    int i, j;
+    int chunksize;
+    int remain_rows = A->num_rows - (current_row + 1);
+    if (remain_rows < num_threads) {
+        if (tid < remain_rows) {
+            chunksize = 1;
+        }
+        else {
+            chunksize = 0;
+        }
+    }
+    else {
+        chunksize = (int) floor (remain_rows/num_threads);        
+    }
+    int offset = (current_row + 1) + tid*chunksize;
+    if (tid < num_threads-1) {
+        for (i = offset; i < offset + chunksize; i++) {
+            float base_multiplier = A->elements[A->num_columns*i + current_row];
+            for (j = current_row; j < A->num_columns; j++) {
+                A->elements[A->num_columns*i + j] -= \
+                    base_multiplier*A->elements[A->num_columns*current_row + j];
             }
         }
     }
     else {
-        for (i = offset; i < thread_data->dim; i++) {
-            if (i < thread_data->current_row) {
-                thread_data->U[thread_data->current_row*thread_data->dim + i] = 0;
-            }
-            else {
-                thread_data->U[thread_data->current_row*thread_data->dim + i] = (float)\
-                    thread_data->U[thread_data->current_row*thread_data->dim + i]/thread_data->root_value;                
+        for (i = offset; i < A->num_rows; i++) {
+            float base_multiplier = A->elements[A->num_columns*i + current_row];
+            for (j = current_row; j < A->num_columns; j++) {
+                A->elements[A->num_columns*i + j] -= \
+                    base_multiplier*A->elements[A->num_columns*current_row + j];
             }
         }
     }
-    free(thread_data);
 }
 
-void eliminate(void *args) {
-    args_for_eli_t *thread_data = (args_for_eli_t *) args;
-    int i, j, k;
-    k = thread_data->current_row;
-    i = k + 1 + thread_data->tid;
-    int stride = thread_data->num_threads;
-    while (i < thread_data->dim) {
-        float root_val = thread_data->U[thread_data->dim*i + k];
-        for (j = k; j < thread_data->dim; j++) {
-            thread_data->U[thread_data->dim*i + j] -= root_val*thread_data->U[thread_data->dim*k + j];
-        }
-        i += stride;
-    }
-    free(thread_data);
+void gauss_eliminate_func(void *args) {
+    arg_for_thread_t *thread_data = (arg_for_thread_t *) args;
+    int k;
+    int dim = thread_data->A->num_columns;
+    for (k = 0; k < thread_data->A->num_rows; k++) {
+        // Divide stage
+        divide(thread_data->tid, thread_data->num_threads, k, thread_data->A);
+        pthread_barrier_wait(&barrier_for_threads);
+        thread_data->A->elements[dim*k + k] = 1;
+        // Eliminate stage
+        eliminate(thread_data->tid, thread_data->num_threads, k, thread_data->A);
+    } 
 }
 
 /* FIXME: Write code to perform gaussian elimination using pthreads */
 void gauss_eliminate_using_pthreads(Matrix U, unsigned int num_threads)
 {
-    int i, j;
-    for (i = 0; i < U.num_rows; i++) {
-        pthread_t *worker = (pthread_t *) malloc (num_threads * sizeof(pthread_t));
-        args_for_div_t *div_data;
-        args_for_eli_t *eli_data;
-        float root_value = U.elements[i*U.num_columns + i];
-        for (j = 0; j < num_threads; j++) {
-            div_data = (args_for_div_t *) malloc (sizeof(args_for_div_t));
-            div_data->tid = j;
-            div_data->current_row = i;
-            div_data->dim = U.num_columns;
-            div_data->root_value = root_value;
-            int chunksize = (int) floor(U.num_columns/num_threads);
-            if (chunksize == 0) {
-                div_data->chunksize = 1;
-            }
-            else {
-                div_data->chunksize = chunksize;
-            }
-            div_data->U = U.elements;
+    int i;
+    pthread_barrier_init(&barrier_for_threads, NULL, num_threads);
+    pthread_t *worker = (pthread_t *) malloc (num_threads * sizeof(pthread_t));
+    arg_for_thread_t *thread_data;
+    for (i = 0; i < num_threads; i++) {
+        thread_data = (arg_for_thread_t *) malloc (sizeof(arg_for_thread_t));
+        thread_data->tid = i;
+        thread_data->num_threads = num_threads;
+        thread_data->A = &U;
 
-            if ((pthread_create(&worker[j], NULL, divide, (void *) div_data)) != 0) {
-                perror("pthread_create_divide");
-                exit(EXIT_FAILURE);
-            }
+        if ((pthread_create(&worker[i], NULL, gauss_eliminate_func, (void *)thread_data)) != 0) {
+            perror("pthread_create");
+            exit(EXIT_FAILURE);
         }
-
-        for (j = 0; j < num_threads; j++) {
-            pthread_join(worker[j], NULL);
-        }
-
-        fprintf(stderr, "\nDivision: ");
-        print_matrix(U);
-
-        for (j = 0; j < num_threads; j++) {
-            eli_data = (args_for_eli_t *) malloc (sizeof(args_for_eli_t));
-            eli_data->tid = j;
-            eli_data->current_row = i;
-            eli_data->dim = U.num_columns;
-            eli_data->num_threads = num_threads;
-            eli_data->U = U.elements;
-
-            if ((pthread_create(&worker[j], NULL, eliminate, (void *) eli_data)) != 0) {
-                perror("pthread_create_eliminate");
-                exit(EXIT_FAILURE);
-            }
-        }
-
-        for (j = 0; j < num_threads; j++) {
-            pthread_join(worker[j], NULL);
-        }
-
-        fprintf(stderr, "\nElimination: ");
-        print_matrix(U);
-
-        fprintf(stderr, "\n----------------------------------------\n");
     }
-    
+    for (i = 0; i < num_threads; i++) {
+        pthread_join(worker[i], NULL);
+    }
+
+    pthread_barrier_destroy(&barrier_for_threads);
+
+    return;
 }
 
 

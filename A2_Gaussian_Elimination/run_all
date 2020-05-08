@@ -1,0 +1,20 @@
+#!/bin/bash
+
+for i in {1..20}
+do
+    ./gauss_eliminate 16384 4 >> 16384_elements
+done
+
+echo " " >> 16384_elements
+
+for i in {1..20}
+do
+    ./gauss_eliminate 16384 8 >> 16384_elements
+done
+
+echo " " >> 16384_elements
+
+for i in {1..20}
+do
+    ./gauss_eliminate 16384 16 >> 16384_elements
+done
