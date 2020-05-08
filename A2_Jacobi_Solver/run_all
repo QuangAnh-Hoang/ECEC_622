@@ -1,0 +1,27 @@
+#!/bin/bash
+
+for i in {1..20}
+do
+    ./jacobi_solver 2048 4 >> 2048_elements
+done
+
+echo " " >> 2048_elements
+
+for i in {1..20}
+do
+    ./jacobi_solver 2048 8 >> 2048_elements
+done
+
+echo " " >> 2048_elements
+
+for i in {1..20}
+do
+    ./jacobi_solver 2048 16 >> 2048_elements
+done
+
+echo " " >> 2048_elements
+
+for i in {1..20}
+do
+    ./jacobi_solver 2048 32 >> 2048_elements
+done
