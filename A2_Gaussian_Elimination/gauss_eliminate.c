@@ -3,12 +3,15 @@
  * Author: Naga Kandasamy
  * Date of last update: April 22, 2020
  *
- * Student names(s): FIXME
- * Date: FIXME
+ * Student names(s): Quang Anh Hoang
+ * Date: May 6th, 2020
  *
  * Compile as follows: 
  * gcc -o gauss_eliminate gauss_eliminate.c compute_gold.c -O3 -Wall -lpthread -lm
  */
+
+#define _REENTRANT /* Make sure the library functions are MT (muti-thread) safe */
+#define _GNU_SOURCE
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -31,11 +34,8 @@ int perform_simple_check(const Matrix);
 void print_matrix(const Matrix);
 float get_random_number(int, int);
 int check_results(float *, float *, int, float);
-void barrier_sync(barrier_t *, int, int);
 
-barrier_t root_val_barrier;
-barrier_t divide_barrier;
-barrier_t eliminate_barrier;
+pthread_barrier_t barrier_for_threads;
 
 int main(int argc, char **argv)
 {
@@ -47,21 +47,6 @@ int main(int argc, char **argv)
 
     int matrix_size = atoi(argv[1]);
     int num_threads = atoi(argv[2]);
-
-    /* Initialize the barrier data structure */
-    root_val_barrier.counter = 0;
-    sem_init(&root_val_barrier.counter_sem, 0, 1); /* Initialize semaphore protecting the counter to unlocked */
-    sem_init(&root_val_barrier.barrier_sem, 0, 0); /* Initialize semaphore protecting the barrier to locked */
-
-    /* Initialize the barrier data structure */
-    divide_barrier.counter = 0;
-    sem_init(&divide_barrier.counter_sem, 0, 1); /* Initialize semaphore protecting the counter to unlocked */
-    sem_init(&divide_barrier.barrier_sem, 0, 0); /* Initialize semaphore protecting the barrier to locked */
-
-    /* Initialize the barrier data structure */
-    eliminate_barrier.counter = 0;
-    sem_init(&eliminate_barrier.counter_sem, 0, 1); /* Initialize semaphore protecting the counter to unlocked */
-    sem_init(&eliminate_barrier.barrier_sem, 0, 0); /* Initialize semaphore protecting the barrier to locked */
 
     Matrix A;			                                            /* Input matrix */
     Matrix U_reference;		                                        /* Upper triangular matrix computed by reference code */
@@ -139,9 +124,10 @@ int main(int argc, char **argv)
     exit(EXIT_SUCCESS);
 }
 
-void divide(int tid, int num_threads, int current_row, float root_value, Matrix *A) {
+void divide(int tid, int num_threads, int current_row, Matrix *A) {
     int i;
     int chunksize;
+    float root_value = A->elements[A->num_columns*current_row + current_row];
     int remaining_elements = A->num_columns - current_row;
     if (remaining_elements < num_threads) {
         if (tid < remaining_elements) {
@@ -154,7 +140,7 @@ void divide(int tid, int num_threads, int current_row, float root_value, Matrix 
     else {
         chunksize = (int) floor (remaining_elements/num_threads);        
     }
-    int offset = current_row + tid*chunksize;
+    int offset = current_row + tid*chunksize + 1;
     if (chunksize > 0) {
         if (tid < num_threads-1) {
             for (i = offset; i < offset + chunksize; i++) {
@@ -212,17 +198,12 @@ void gauss_eliminate_func(void *args) {
     int k;
     int dim = thread_data->A->num_columns;
     for (k = 0; k < thread_data->A->num_rows; k++) {
-        // Obtain root value of each row before divide stage
-        float root_value = thread_data->A->elements[dim*k + k];
-        barrier_sync(&root_val_barrier, thread_data->tid, thread_data->num_threads);
-
         // Divide stage
-        divide(thread_data->tid, thread_data->num_threads, k, root_value, thread_data->A);
-        barrier_sync(&divide_barrier, thread_data->tid, thread_data->num_threads);
-
+        divide(thread_data->tid, thread_data->num_threads, k, thread_data->A);
+        pthread_barrier_wait(&barrier_for_threads);
+        thread_data->A->elements[dim*k + k] = 1;
         // Eliminate stage
         eliminate(thread_data->tid, thread_data->num_threads, k, thread_data->A);
-        barrier_sync(&eliminate_barrier, thread_data->tid, thread_data->num_threads);
     } 
 }
 
@@ -230,6 +211,7 @@ void gauss_eliminate_func(void *args) {
 void gauss_eliminate_using_pthreads(Matrix U, unsigned int num_threads)
 {
     int i;
+    pthread_barrier_init(&barrier_for_threads, NULL, num_threads);
     pthread_t *worker = (pthread_t *) malloc (num_threads * sizeof(pthread_t));
     arg_for_thread_t *thread_data;
     for (i = 0; i < num_threads; i++) {
@@ -246,6 +228,9 @@ void gauss_eliminate_using_pthreads(Matrix U, unsigned int num_threads)
     for (i = 0; i < num_threads; i++) {
         pthread_join(worker[i], NULL);
     }
+
+    pthread_barrier_destroy(&barrier_for_threads);
+
     return;
 }
 
@@ -310,28 +295,4 @@ void print_matrix(Matrix A) {
             fprintf(stderr, "%.2f, ", A.elements[dim*i + j]);
         }
     }
-}
-
-/* Barrier synchronization implementation */
-void barrier_sync(barrier_t *barrier, int tid, int num_threads)
-{
-    int i;
-
-    sem_wait(&(barrier->counter_sem));
-    /* Check if all threads before us, that is num_threads - 1 threads have reached this point. */	  
-    if (barrier->counter == (num_threads - 1)) {
-        barrier->counter = 0; /* Reset counter value */
-        sem_post(&(barrier->counter_sem)); 	 
-        /* Signal blocked threads that it is now safe to cross the barrier */
-        // printf("Thread number %d is signalling other threads to proceed\n", tid); 
-        for (i = 0; i < (num_threads - 1); i++)
-            sem_post(&(barrier->barrier_sem));
-    } 
-    else { /* There are threads behind us */
-        barrier->counter++;
-        sem_post(&(barrier->counter_sem));
-        sem_wait(&(barrier->barrier_sem)); /* Block on the barrier semaphore */
-    }
-
-    return;
 }

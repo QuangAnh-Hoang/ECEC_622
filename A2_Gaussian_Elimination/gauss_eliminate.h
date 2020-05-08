@@ -8,13 +8,6 @@ typedef struct {
     float* elements;            /* Pointer to the first element of the matrix */
 } Matrix;
 
-/* Structure that defines the barrier */
-typedef struct barrier_s {
-    sem_t counter_sem;          /* Protects access to the counter */
-    sem_t barrier_sem;          /* Signals that barrier is safe to cross */
-    int counter;                /* The value itself */
-} barrier_t;
-
 typedef struct arg_for_thread_t {
     unsigned int tid;
     unsigned int num_threads;
