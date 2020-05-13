@@ -33,7 +33,7 @@ int check_results(float *, float *, int, float);
 
 int main(int argc, char **argv)
 {
-    if (argc < 2) {
+    if (argc < 3) {
         fprintf(stderr, "Usage: %s matrix-size\n", argv[0]);
         fprintf(stderr, "matrix-size: width and height of the square matrix\n");
         exit(EXIT_FAILURE);
@@ -68,8 +68,8 @@ int main(int argc, char **argv)
     int status = compute_gold(U_reference.elements, A.num_rows);
   
     gettimeofday(&stop, NULL);
-    fprintf(stderr, "CPU run time = %0.2f s\n", (float)(stop.tv_sec - start.tv_sec\
-                + (stop.tv_usec - start.tv_usec) / (float)1000000));
+    float ref_time = (float)(stop.tv_sec - start.tv_sec + (stop.tv_usec - start.tv_usec) / (float)1000000);
+    fprintf(stderr, "CPU run time = %0.2f s\n", ref_time);
 
     if (status < 0) {
         fprintf(stderr, "Failed to convert given matrix to upper triangular. Try again.\n");
@@ -86,14 +86,18 @@ int main(int argc, char **argv)
     /* FIXME: Perform Gaussian elimination using OpenMP. 
      * The resulting upper triangular matrix should be returned in U_mt */
     fprintf(stderr, "\nPerforming gaussian elimination using omp\n");
+    gettimeofday(&start, NULL);
+
     gauss_eliminate_using_omp(U_mt, num_threads);
 
+    gettimeofday(&stop, NULL);
+    float omp_time = (float)(stop.tv_sec - start.tv_sec + (stop.tv_usec - start.tv_usec) / (float)1000000);
     /* Check if pthread result matches reference solution within specified tolerance */
     fprintf(stderr, "\nChecking results\n");
     int size = matrix_size * matrix_size;
     int res = check_results(U_reference.elements, U_mt.elements, size, 1e-6);
     fprintf(stderr, "TEST %s\n", (0 == res) ? "PASSED" : "FAILED");
-
+    printf("Speedup = %0.2f\n", (ref_time/omp_time));
     /* Free memory allocated for matrices */
     free(A.elements);
     free(U_reference.elements);
@@ -104,55 +108,29 @@ int main(int argc, char **argv)
 
 
 /* FIXME: Write code to perform gaussian elimination using omp */
-void gauss_eliminate_using_omp(Matrix U, int thread_count)
+void gauss_eliminate_using_omp(Matrix U, int num_threads)
 {
-    int i, j;
+    int i, j, k;
+    int dim = U.num_columns;
+    float *U_elements = U.elements;
     for (i = 0; i < U.num_rows; i++) {
-        float root_value = U.elements[i*U.num_columns + i];
-        int remain_elements = U.num_columns - i;
-#pragma omp parallel num_threads(thread_count) private(j)
-        int chunksize;
-        int tid = omp_get_thread_num();
-        if (remain_elements < thread_count) {
-            if (tid < remain_elements) {
-                chunksize = 1;
-            }
-            else { 
-                chunksize = 0;
-            }
+        #pragma omp parallel for default(none) shared(i, dim, U_elements) private(j)
+        for (j = (i+1); j < dim; j++) {
+            U_elements[i*dim + j] = (float)\
+                U_elements[i*dim + j]/U_elements[i*dim + i];
         }
-        else {
-            chunksize = (int) floor (remain_elements / thread_count);
-        }
-        int offset = i + tid*chunksize + 1;
-        if (chunksize > 0) {
-            #pragma omp for private(j)
-            if (tid < thread_count - 1) {
-                for (j = offset; j < offset + chunksize; j++) {
-                    U.elements[i*U.num_columns + j] = (float) U.elements[i*U.num_columns + j]/root_value;
-                }
-            }
-            else {
-                for (j = offset; j < U.num_columns; j++) {
-                    U.elements[i*U.num_columns + j] = (float) U.elements[i*U.num_columns + j]/root_value;
-                }
-            }
-        }
-        U.elements[i*U.num_columns + i] = 1;
-        int remain_rows = U.num_rows - i - 1;
-        if (remain_rows < thread_count) {
-            if (tid < remain_rows) {
-                chunksize = 1;
-            }
-            else {
-                chunksize = 0;
-            }
-        }
-        else {
-            chunksize = (int) floor (remain_rows / thread_count);
-        }
-        #pragma omp for private(j)
+        #pragma omp barrier
 
+        U.elements[i*U.num_columns + i] = 1;
+
+        #pragma omp parallel for default(none) shared(i, dim, U_elements) private(j, k)
+        for (j = (i+1); j < dim; j++) {
+            for (k = (i+1); k < dim; k++) {
+                U_elements[j*dim + k] -= \
+                    U_elements[j*dim + i]*U_elements[i*dim + k];
+            }
+            U_elements[j*dim + i] = 0;
+        }
     }
 }
 
