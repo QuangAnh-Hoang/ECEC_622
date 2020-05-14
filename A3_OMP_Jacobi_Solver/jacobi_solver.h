@@ -18,7 +18,7 @@ extern void compute_gold(const matrix_t, matrix_t, const matrix_t, int);
 extern void display_jacobi_solution(const matrix_t, const matrix_t, const matrix_t);
 int check_if_diagonal_dominant(const matrix_t);
 matrix_t create_diagonally_dominant_matrix(int, int);
-void compute_using_omp(const matrix_t, matrix_t, const matrix_t);
+void compute_using_omp(const matrix_t, matrix_t, const matrix_t, int);
 void print_matrix(const matrix_t);
 float get_random_number(int, int);
 

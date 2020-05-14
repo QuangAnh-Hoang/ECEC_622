@@ -11,8 +11,10 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
+#include <sys/time.h>
 #include <string.h>
 #include <math.h>
+#include <omp.h>
 #include "jacobi_solver.h"
 
 /* Uncomment the line below to spit out debug information */ 
@@ -20,13 +22,15 @@
 
 int main(int argc, char **argv) 
 {
-	if (argc < 2) {
-		fprintf(stderr, "Usage: %s matrix-size\n", argv[0]);
+	if (argc < 3) {
+		fprintf(stderr, "Usage: %s matrix-size num-threads\n", argv[0]);
         fprintf(stderr, "matrix-size: width of the square matrix\n");
+		fprintf(stderr, "num-threads: number of threads used to parallelize the program\n");
 		exit(EXIT_FAILURE);
 	}
 
     int matrix_size = atoi(argv[1]);
+	int num_threads = atoi(argv[2]);
 
     matrix_t  A;                    /* N x N constant matrix */
 	matrix_t  B;                    /* N x 1 b matrix */
@@ -53,19 +57,33 @@ int main(int argc, char **argv)
 	print_matrix(reference_x);
 #endif
 
+	struct timeval start, stop;
+
     /* Compute Jacobi solution using reference code */
 	fprintf(stderr, "Generating solution using reference code\n");
     int max_iter = 100000; /* Maximum number of iterations to run */
+    gettimeofday(&start, NULL);
+
     compute_gold(A, reference_x, B, max_iter);
+
+    gettimeofday(&stop, NULL);
+	float ref_time = (float)(stop.tv_sec - start.tv_sec + (stop.tv_usec - start.tv_usec) / (float)1000000);
     display_jacobi_solution(A, reference_x, B); /* Display statistics */
 	
 	/* Compute the Jacobi solution using openMP. 
      * Solution is returned in mt_solution_x.
      * */
     fprintf(stderr, "\nPerforming Jacobi iteration using omp\n");
-	compute_using_omp(A, mt_solution_x, B);
+	gettimeofday(&start, NULL);
+
+	compute_using_omp(A, mt_solution_x, B, num_threads);
+
+	gettimeofday(&stop, NULL);
+	float omp_time = (float)(stop.tv_sec - start.tv_sec + (stop.tv_usec - start.tv_usec) / (float)1000000);
     display_jacobi_solution(A, mt_solution_x, B); /* Display statistics */
     
+	printf("\nSpeedup = %0.6f\n", (ref_time/omp_time));
+
     free(A.elements); 
 	free(B.elements); 
 	free(reference_x.elements); 
@@ -76,8 +94,59 @@ int main(int argc, char **argv)
 
 /* FIXME: Complete this function to perform the Jacobi calculation using openMP. 
  * Result must be placed in mt_sol_x. */
-void compute_using_omp(const matrix_t A, matrix_t mt_sol_x, const matrix_t B)
+void compute_using_omp(const matrix_t A, matrix_t mt_sol_x, const matrix_t B, int num_threads)
 {
+	int i, j;
+	int num_col = A.num_columns;
+	int num_row = A.num_rows;
+	int done = 0;
+	int num_iter = 0;
+	double ssd, mse, sum;
+	float *src;
+	float *dest;
+
+    /* Allocate n x 1 matrix to hold iteration values.*/
+    matrix_t new_x = allocate_matrix(num_row, 1, 0);
+
+	while (!done) {
+		if ((num_iter % 2) == 0) {
+			src = mt_sol_x.elements;
+			dest = new_x.elements;
+		}
+		else {
+			src = new_x.elements;
+			dest = mt_sol_x.elements;
+		}
+
+		#pragma omp parallel num_threads(num_threads) private(i, j, sum)
+		{
+			#pragma omp for
+			for (i = 0; i < num_row; i++) {
+				sum = 0.0;
+				for (j = 0; j < num_col; j++) {
+					if (i != j) {
+						sum += A.elements[i*num_col + j]*src[j];
+					}
+				}
+				dest[i] = (B.elements[i] - sum)/A.elements[i*num_col + i];
+			}
+		}
+
+		ssd = 0.0;
+		for (i = 0; i < num_col; i++) {
+			ssd += (dest[i] - src[i])*(dest[i] - src[i]);
+		}
+
+		num_iter++;
+		mse = sqrt(ssd);
+		if (mse < THRESHOLD) {
+			done = 1;
+			// if ((num_iter % 2) == 0) {
+			// 	done = 1;
+			// }
+		}
+		fprintf(stderr, "Iteration: %d. MSE = %f\n", num_iter, mse); 
+	}
 }
 
 /* Allocate a matrix of dimensions height * width.
