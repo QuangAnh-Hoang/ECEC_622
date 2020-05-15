@@ -82,7 +82,9 @@ int main(int argc, char **argv)
 	float omp_time = (float)(stop.tv_sec - start.tv_sec + (stop.tv_usec - start.tv_usec) / (float)1000000);
     display_jacobi_solution(A, mt_solution_x, B); /* Display statistics */
     
-	printf("\nSpeedup = %0.6f\n", (ref_time/omp_time));
+	fprintf(stderr, "\nSpeedup = %0.6f\n", (ref_time/omp_time));
+
+	printf("%d\t%d\t%0.6f\n", matrix_size, num_threads, (ref_time/omp_time));
 
     free(A.elements); 
 	free(B.elements); 
@@ -141,12 +143,11 @@ void compute_using_omp(const matrix_t A, matrix_t mt_sol_x, const matrix_t B, in
 		mse = sqrt(ssd);
 		if (mse < THRESHOLD) {
 			done = 1;
-			// if ((num_iter % 2) == 0) {
-			// 	done = 1;
-			// }
 		}
 		fprintf(stderr, "Iteration: %d. MSE = %f\n", num_iter, mse); 
 	}
+
+	free(new_x.elements);
 }
 
 /* Allocate a matrix of dimensions height * width.

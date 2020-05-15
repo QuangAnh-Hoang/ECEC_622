@@ -61,6 +61,8 @@ int main(int argc, char **argv)
         }
     }
 
+    // print_matrix(U_reference);
+
     fprintf(stderr, "\nPerforming gaussian elimination using reference code\n");
     struct timeval start, stop;
     gettimeofday(&start, NULL);
@@ -68,6 +70,9 @@ int main(int argc, char **argv)
     int status = compute_gold(U_reference.elements, A.num_rows);
   
     gettimeofday(&stop, NULL);
+    
+    // print_matrix(U_reference);
+
     float ref_time = (float)(stop.tv_sec - start.tv_sec + (stop.tv_usec - start.tv_usec) / (float)1000000);
     fprintf(stderr, "CPU run time = %0.2f s\n", ref_time);
 
@@ -91,13 +96,16 @@ int main(int argc, char **argv)
     gauss_eliminate_using_omp(U_mt, num_threads);
 
     gettimeofday(&stop, NULL);
+
+    // print_matrix(U_mt);
+
     float omp_time = (float)(stop.tv_sec - start.tv_sec + (stop.tv_usec - start.tv_usec) / (float)1000000);
     /* Check if pthread result matches reference solution within specified tolerance */
     fprintf(stderr, "\nChecking results\n");
     int size = matrix_size * matrix_size;
     int res = check_results(U_reference.elements, U_mt.elements, size, 1e-6);
     fprintf(stderr, "TEST %s\n", (0 == res) ? "PASSED" : "FAILED");
-    printf("Speedup = %0.2f\n", (ref_time/omp_time));
+    printf("%d\t%d\t%0.6f\n", matrix_size, num_threads, (ref_time/omp_time));
     /* Free memory allocated for matrices */
     free(A.elements);
     free(U_reference.elements);
@@ -107,29 +115,28 @@ int main(int argc, char **argv)
 }
 
 
-/* FIXME: Write code to perform gaussian elimination using omp */
+/* Write code to perform gaussian elimination using omp */
 void gauss_eliminate_using_omp(Matrix U, int num_threads)
 {
     int i, j, k;
     int dim = U.num_columns;
-    float *U_elements = U.elements;
     for (i = 0; i < U.num_rows; i++) {
-        #pragma omp parallel for default(none) shared(i, dim, U_elements) private(j)
-        for (j = (i+1); j < dim; j++) {
-            U_elements[i*dim + j] = (float)\
-                U_elements[i*dim + j]/U_elements[i*dim + i];
-        }
-        #pragma omp barrier
-
-        U.elements[i*U.num_columns + i] = 1;
-
-        #pragma omp parallel for default(none) shared(i, dim, U_elements) private(j, k)
-        for (j = (i+1); j < dim; j++) {
-            for (k = (i+1); k < dim; k++) {
-                U_elements[j*dim + k] -= \
-                    U_elements[j*dim + i]*U_elements[i*dim + k];
+        float root_value = U.elements[i*dim + i];
+        #pragma omp parallel num_threads(num_threads)
+        {
+            #pragma omp for
+            for (j = i; j < dim; j++) {
+                U.elements[i*dim + j] = (float)\
+                    U.elements[i*dim + j]/root_value;
             }
-            U_elements[j*dim + i] = 0;
+            #pragma omp for
+            for (j = (i+1); j < dim; j++) {
+                for (k = (i+1); k < dim; k++) {
+                    U.elements[j*dim + k] -= \
+                        U.elements[j*dim + i]*U.elements[i*dim + k];
+                }
+                U.elements[j*dim + i] = 0;
+            }
         }
     }
 }
@@ -184,4 +191,15 @@ int perform_simple_check(const Matrix M)
             return -1;
   
     return 0;
+}
+
+void print_matrix(Matrix A) {
+    int i, j;
+    int dim = A.num_columns;
+    for (i = 0; i < dim; i++) {
+        fprintf(stderr, "\n");
+        for (j = 0; j < dim; j++) {
+            fprintf(stderr, "%.2f, ", A.elements[dim*i + j]);
+        }
+    }
 }
