@@ -16,6 +16,7 @@
 #include <string.h>
 #include <math.h>
 #include <sys/time.h>
+#include <time.h>
 #include <float.h>
 
 /* #define DEBUG */
@@ -42,6 +43,8 @@ int main(int argc, char **argv)
     /* Allocate memory for the input and output images */
     int size = atoi(argv[1]);
 
+    struct timeval start, stop;
+
     fprintf(stderr, "Creating %d x %d images\n", size, size);
     image_t in, out_gold, out_gpu;
     in.size = out_gold.size = out_gpu.size = size;
@@ -61,7 +64,12 @@ int main(int argc, char **argv)
   
    /* Calculate the blur on the CPU. The result is stored in out_gold. */
     fprintf(stderr, "Calculating blur on the CPU\n"); 
+    gettimeofday(&start, NULL);
+
     compute_gold(in, out_gold); 
+
+    gettimeofday(&stop, NULL);
+    float ref_time = (float)(stop.tv_sec - start.tv_sec + (stop.tv_usec - start.tv_usec) / (float)1000000);
 
 #ifdef DEBUG 
    print_image(in);
@@ -70,7 +78,14 @@ int main(int argc, char **argv)
 
    /* FIXME: Calculate the blur on the GPU. The result is stored in out_gpu. */
    fprintf(stderr, "Calculating blur on the GPU\n");
+   gettimeofday(&start, NULL);
+
    compute_on_device(in, out_gpu);
+
+   gettimeofday(&stop, NULL);
+   float gpu_time = (float)(stop.tv_sec - start.tv_sec + (stop.tv_usec - start.tv_usec) / (float)1000000);
+   float speedup = ref_time / gpu_time;
+
 
    /* Check CPU and GPU results for correctness */
    fprintf(stderr, "Checking CPU and GPU results\n");
@@ -80,11 +95,9 @@ int main(int argc, char **argv)
    check = check_results(out_gold.element, out_gpu.element, num_elements, eps);
    if (check == 0) 
        fprintf(stderr, "TEST PASSED\n");
+       fprintf(stderr, "Speedup = %0.6f\n", speedup);
    else
        fprintf(stderr, "TEST FAILED\n");
-
-//   print_image(in);
-//   print_image(out_gpu);
    
    /* Free data structures on the host */
    free((void *)in.element);
