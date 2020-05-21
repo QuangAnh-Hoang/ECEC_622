@@ -8,7 +8,8 @@
     Date created: May 3, 2019
     Date modified: May 12, 2020
 
-    FIXME: Quang Anh Hoang
+    Edited by: Quang Anh Hoang
+    Date edited: May 21, 2020
 */
 
 #include <stdlib.h>
@@ -21,6 +22,8 @@
 
 /* #define DEBUG */
 
+#define THREAD_PER_BLOCK 256;
+
 /* Include the kernel code */
 #include "blur_filter_kernel.cu"
 
@@ -28,9 +31,6 @@ extern "C" void compute_gold(const image_t, image_t);
 void compute_on_device(const image_t, image_t);
 int check_results(const float *, const float *, int, float);
 void print_image(const image_t);
-
-#define THREAD_PER_BLOCK 128;
-#define NUM_BLOCKS 240;
 
 int main(int argc, char **argv)
 {
@@ -76,35 +76,35 @@ int main(int argc, char **argv)
    print_image(out_gold);
 #endif
 
-   /* FIXME: Calculate the blur on the GPU. The result is stored in out_gpu. */
-   fprintf(stderr, "Calculating blur on the GPU\n");
-   gettimeofday(&start, NULL);
+    /* FIXME: Calculate the blur on the GPU. The result is stored in out_gpu. */
+    fprintf(stderr, "Calculating blur on the GPU\n");
+    gettimeofday(&start, NULL);
 
-   compute_on_device(in, out_gpu);
+    compute_on_device(in, out_gpu);
 
-   gettimeofday(&stop, NULL);
-   float gpu_time = (float)(stop.tv_sec - start.tv_sec + (stop.tv_usec - start.tv_usec) / (float)1000000);
-   float speedup = ref_time / gpu_time;
+    gettimeofday(&stop, NULL);
+    float gpu_time = (float)(stop.tv_sec - start.tv_sec + (stop.tv_usec - start.tv_usec) / (float)1000000);
+    float speedup = ref_time / gpu_time;
 
+    /* Check CPU and GPU results for correctness */
+    fprintf(stderr, "Checking CPU and GPU results\n");
+    int num_elements = out_gold.size * out_gold.size;
+    float eps = 1e-6;    /* Do not change */
+    int check;
+    check = check_results(out_gold.element, out_gpu.element, num_elements, eps);
+    if (check == 0) {
+        fprintf(stderr, "TEST PASSED\n");
+        fprintf(stderr, "Speedup = %0.6f\n", speedup);
+        printf("%d\t%f\n", size, speedup);
+    }
+    else {
+        fprintf(stderr, "TEST FAILED\n");
+    }
 
-   /* Check CPU and GPU results for correctness */
-   fprintf(stderr, "Checking CPU and GPU results\n");
-   int num_elements = out_gold.size * out_gold.size;
-   float eps = 1e-6;    /* Do not change */
-   int check;
-   check = check_results(out_gold.element, out_gpu.element, num_elements, eps);
-   if (check == 0) {
-       fprintf(stderr, "TEST PASSED\n");
-       fprintf(stderr, "Speedup = %0.6f\n", speedup);
-   }
-   else {
-       fprintf(stderr, "TEST FAILED\n");
-   }
-   
-   /* Free data structures on the host */
-   free((void *)in.element);
-   free((void *)out_gold.element);
-   free((void *)out_gpu.element);
+    /* Free data structures on the host */
+    free((void *)in.element);
+    free((void *)out_gold.element);
+    free((void *)out_gpu.element);
 
     exit(EXIT_SUCCESS);
 }
@@ -127,16 +127,13 @@ void compute_on_device(const image_t in, image_t out)
     /* Allocate space on GPU for result vector */
     cudaMalloc((void **)&out_on_device, num_elements * sizeof(float));
 
-//    int num_block = NUM_BLOCKS;
-//    dim3 thread_block(THREAD_PER_BLOCK, 1, 1);
-//    fprintf(stderr, "Setting up a (%d x 1) execution grid\n", num_block);
-//    dim3 grid(num_block, 1);
-
     fprintf(stderr, "Applying blur filter using GPU\n");
 
-    int num_blocks = num_elements/256;
+    /* Number of blocks in the grid */
+    int num_blocks = (int) ceil(num_elements/THREAD_PER_BLOCK);
 
-    blur_filter_kernel<<< num_blocks, 256 >>>(in_on_device, out_on_device, size);
+    /* Call for kernel to execute on GPU */
+    blur_filter_kernel<<< num_blocks, THREAD_PER_BLOCK >>>(in_on_device, out_on_device, size);
     cudaDeviceSynchronize();
 
     /* Copy result vector back from device to host */
