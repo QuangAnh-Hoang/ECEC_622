@@ -2,5 +2,5 @@
 
 for i in {1..100}
 do
-    ./blur_filter 4096 >> 4096_performance
+    ./blur_filter 8192 >> 8192_performance
 done
