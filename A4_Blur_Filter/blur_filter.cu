@@ -112,6 +112,7 @@ int main(int argc, char **argv)
 /* FIXME: Complete this function to calculate the blur on the GPU */
 void compute_on_device(const image_t in, image_t out)
 {
+    int num_threads = THREAD_PER_BLOCK;
     int num_elements = in.size * in.size;
 
     float *in_on_device = NULL;
@@ -130,10 +131,10 @@ void compute_on_device(const image_t in, image_t out)
     fprintf(stderr, "Applying blur filter using GPU\n");
 
     /* Number of blocks in the grid */
-    int num_blocks = (int) ceil(num_elements/THREAD_PER_BLOCK);
+    int num_blocks = (int) ceil(num_elements/num_threads);
 
     /* Call for kernel to execute on GPU */
-    blur_filter_kernel<<< num_blocks, THREAD_PER_BLOCK >>>(in_on_device, out_on_device, size);
+    blur_filter_kernel<<< num_blocks, num_threads >>>(in_on_device, out_on_device, size);
     cudaDeviceSynchronize();
 
     /* Copy result vector back from device to host */
