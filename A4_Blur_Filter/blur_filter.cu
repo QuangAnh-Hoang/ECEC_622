@@ -90,7 +90,30 @@ int main(int argc, char **argv)
 /* FIXME: Complete this function to calculate the blur on the GPU */
 void compute_on_device(const image_t in, image_t out)
 {
-    return;
+    int num_elements = in.size * in.size;
+
+    float *in_on_device = NULL;
+    float *out_on_device = NULL;
+
+    out.size = in.size;
+
+    /* Allocate space on GPU for vector in and transfer from host to GPU */
+    cudaMalloc((void **)&in_on_device, num_elements * sizeof(float));
+    cudaMemcpy(in_on_device, in.element, num_elements * sizeof(float), cudaMemcpyHostToDevice);
+
+    /* Allocate space on GPU for result vector */
+    cudaMalloc((void **)&out_on_device, num_elements * sizeof(float));
+
+    blur_filter_kernel<<<ceil(num_elements/THREAD_PER_BLOCK), THREAD_PER_BLOCK>>>(in_on_device, out_on_device, in.size);
+    cudaDeviceSynchronize(); /* Force CPU to wait for GPU to complete */
+    check_for_error("KERNEL FAILURE");
+
+    /* Copy result vector back from device to host */
+    cudaMemcpy(out.element, out_on_device, num_elements * sizeof(float), cudaMemcpyDeviceToHost);
+
+    /* Free memory on GPU */
+    cudaFree(in_on_device);
+    cudaFree(out_on_device);
 }
 
 /* Check correctness of results */
