@@ -93,11 +93,13 @@ int main(int argc, char **argv)
    float eps = 1e-6;    /* Do not change */
    int check;
    check = check_results(out_gold.element, out_gpu.element, num_elements, eps);
-   if (check == 0) 
+   if (check == 0) {
        fprintf(stderr, "TEST PASSED\n");
        fprintf(stderr, "Speedup = %0.6f\n", speedup);
-   else
+   }
+   else {
        fprintf(stderr, "TEST FAILED\n");
+   }
    
    /* Free data structures on the host */
    free((void *)in.element);
@@ -132,9 +134,9 @@ void compute_on_device(const image_t in, image_t out)
 
     fprintf(stderr, "Applying blur filter using GPU\n");
 
-    int num_blocks = num_elements/128;
+    int num_blocks = num_elements/256;
 
-    blur_filter_kernel<<< num_blocks, 128 >>>(in_on_device, out_on_device, size);
+    blur_filter_kernel<<< num_blocks, 256 >>>(in_on_device, out_on_device, size);
     cudaDeviceSynchronize();
 
     /* Copy result vector back from device to host */
