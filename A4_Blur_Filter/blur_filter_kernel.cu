@@ -10,8 +10,6 @@ blur_filter_kernel (const float *in, float *out, int size)
 {
     /* Obtain thread ID */
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    /* Compute the stride length = total number of threads */
-    int stride = blockDim.x * gridDim.x;
 
     int i, j;
     int curr_row, curr_col;

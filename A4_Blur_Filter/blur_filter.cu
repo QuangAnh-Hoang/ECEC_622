@@ -8,7 +8,7 @@
     Date created: May 3, 2019
     Date modified: May 12, 2020
 
-    FIXME: Student name(s)
+    FIXME: Quang Anh Hoang
 */
 
 #include <stdlib.h>
@@ -16,6 +16,7 @@
 #include <string.h>
 #include <math.h>
 #include <sys/time.h>
+#include <float.h>
 
 /* #define DEBUG */
 
@@ -26,6 +27,9 @@ extern "C" void compute_gold(const image_t, image_t);
 void compute_on_device(const image_t, image_t);
 int check_results(const float *, const float *, int, float);
 void print_image(const image_t);
+
+#define THREAD_PER_BLOCK 128;
+#define NUM_BLOCKS 240;
 
 int main(int argc, char **argv)
 {
@@ -78,6 +82,9 @@ int main(int argc, char **argv)
        fprintf(stderr, "TEST PASSED\n");
    else
        fprintf(stderr, "TEST FAILED\n");
+
+//   print_image(in);
+//   print_image(out_gpu);
    
    /* Free data structures on the host */
    free((void *)in.element);
@@ -95,7 +102,8 @@ void compute_on_device(const image_t in, image_t out)
     float *in_on_device = NULL;
     float *out_on_device = NULL;
 
-    out.size = in.size;
+    int size = in.size;
+    out.size = size;
 
     /* Allocate space on GPU for vector in and transfer from host to GPU */
     cudaMalloc((void **)&in_on_device, num_elements * sizeof(float));
@@ -104,9 +112,17 @@ void compute_on_device(const image_t in, image_t out)
     /* Allocate space on GPU for result vector */
     cudaMalloc((void **)&out_on_device, num_elements * sizeof(float));
 
-    blur_filter_kernel<<<ceil(num_elements/THREAD_PER_BLOCK), THREAD_PER_BLOCK>>>(in_on_device, out_on_device, in.size);
-    cudaDeviceSynchronize(); /* Force CPU to wait for GPU to complete */
-    check_for_error("KERNEL FAILURE");
+//    int num_block = NUM_BLOCKS;
+//    dim3 thread_block(THREAD_PER_BLOCK, 1, 1);
+//    fprintf(stderr, "Setting up a (%d x 1) execution grid\n", num_block);
+//    dim3 grid(num_block, 1);
+
+    fprintf(stderr, "Applying blur filter using GPU\n");
+
+    int num_blocks = num_elements/128;
+
+    blur_filter_kernel<<< num_blocks, 128 >>>(in_on_device, out_on_device, size);
+    cudaDeviceSynchronize();
 
     /* Copy result vector back from device to host */
     cudaMemcpy(out.element, out_on_device, num_elements * sizeof(float), cudaMemcpyDeviceToHost);
@@ -114,6 +130,8 @@ void compute_on_device(const image_t in, image_t out)
     /* Free memory on GPU */
     cudaFree(in_on_device);
     cudaFree(out_on_device);
+
+    return;
 }
 
 /* Check correctness of results */

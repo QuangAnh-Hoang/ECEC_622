@@ -4,9 +4,6 @@
 /* Define the half-width of the box blur filter. */
 #define BLUR_SIZE 1
 
-/* Define number of threads per block */
-#define THREAD_PER_BLOCK 256;
-
 /* Define the structure for our image or 2D array. */
 typedef struct image_s {
     int size; /* Size of one side of the image. */
