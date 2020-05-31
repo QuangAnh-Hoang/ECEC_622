@@ -83,6 +83,56 @@ int main(int argc, char **argv)
 void compute_on_device(const matrix_t A, matrix_t gpu_naive_sol_x, 
                        matrix_t gpu_opt_sol_x, const matrix_t B)
 {
+    float *A_d = NULL;
+    float *b_d = NULL;
+
+    int num_elements = A.num_columns * A.num_rows;
+    int num_rows = A.num_rows;
+    int num_columns = A.num_columns;
+
+    float *x_even_d = NULL;
+    float *x_odd_d = NULL;
+
+    /* Allocate space on GPU for matrices A, b and x and transfer from host to GPU */
+    cudaMalloc((void **)&A_d, num_elements*sizeof(float));
+    cudaMemcpy(A_d, A.elements, num_elements*sizeof(float), cudaMemcpyHostToDevice);
+
+    cudaMalloc((void **)&b_d, num_rows*sizeof(float));
+    cudaMemcpy(b_d, B.elements, num_rows*sizeof(float), cudaMemcpyHostToDevice);
+
+    cudaMalloc((void **)&x_even_d, num_rows*sizeof(float));
+    cudaMemcpy(x_even_d, B.elements, num_rows*sizeof(float), cudaMemcpyHostToDevice);
+
+    cudaMalloc((void **)&x_odd_d, num_rows*sizeof(float));
+    cudaMemcpy(x_odd_d, B.elements, num_rows*sizeof(float), cudaMemcpyHostToDevice);
+
+    /* Setting up execution grid to launch kernel */
+    dim3 threadPerBlock(THREAD_BLOCK_SIZE, 1, 1);
+    dim3 numBlocks(ceil(num_rows/THREAD_BLOCK_SIZE), 1, 1);
+
+    int num_iter = 0;
+    double ssd;
+    double *ssd_d;
+    unsigned int done = 0;
+    while (!done) {
+        cudaMemset(ssd_d, 0);
+
+        if ((num_iter % 2) == 0) {
+            jacobi_iteration_kernel_naive<<< numBlocks, threadPerBlock >>>();
+        }
+        else if ((num_iter % 2) == 1) {
+            jacobi_iteration_kernel_naive<<< numBlocks, threadPerBlock >>>();
+        }
+        cudaDeviceSynchronize;
+
+        cudaMemcpy(ssd, *ssd_d, sizeof(float), cudaMemcpyDeviceToHost);
+
+        num_iter++;
+        if (sqrt(ssd) <= THRESHOLD) {
+            done = 1;
+        }
+    }
+
     return;
 }
 
