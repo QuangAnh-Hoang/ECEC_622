@@ -111,11 +111,11 @@ void compute_on_device(const matrix_t A, matrix_t gpu_naive_sol_x,
     dim3 numBlocks(ceil(num_rows/THREAD_BLOCK_SIZE), 1, 1);
 
     int num_iter = 0;
-    float ssd;
+    float *ssd;
     float *ssd_d;
     unsigned int done = 0;
     while (!done) {
-        cudaMemset(ssd_d, 0);
+        cudaMemset(ssd_d, 0, sizeof(float));
 
         if ((num_iter % 2) == 0) {
             jacobi_iteration_kernel_naive<<< numBlocks, threadPerBlock >>>(A_d, x_even_d, x_odd_d, b_d, num_rows, ssd_d);
@@ -125,10 +125,10 @@ void compute_on_device(const matrix_t A, matrix_t gpu_naive_sol_x,
         }
         cudaDeviceSynchronize;
 
-        cudaMemcpy(ssd, *ssd_d, sizeof(float), cudaMemcpyDeviceToHost);
+        cudaMemcpy(ssd, ssd_d, sizeof(float), cudaMemcpyDeviceToHost);
 
         num_iter++;
-        if (sqrt(ssd) <= THRESHOLD) {
+        if (sqrt(ssd[0]) <= THRESHOLD) {
             done = 1;
         }
     }
