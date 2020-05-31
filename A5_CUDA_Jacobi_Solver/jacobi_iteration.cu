@@ -111,17 +111,17 @@ void compute_on_device(const matrix_t A, matrix_t gpu_naive_sol_x,
     dim3 numBlocks(ceil(num_rows/THREAD_BLOCK_SIZE), 1, 1);
 
     int num_iter = 0;
-    double ssd;
-    double *ssd_d;
+    float ssd;
+    float *ssd_d;
     unsigned int done = 0;
     while (!done) {
         cudaMemset(ssd_d, 0);
 
         if ((num_iter % 2) == 0) {
-            jacobi_iteration_kernel_naive<<< numBlocks, threadPerBlock >>>();
+            jacobi_iteration_kernel_naive<<< numBlocks, threadPerBlock >>>(A_d, x_even_d, x_odd_d, b_d, num_rows, ssd_d);
         }
         else if ((num_iter % 2) == 1) {
-            jacobi_iteration_kernel_naive<<< numBlocks, threadPerBlock >>>();
+            jacobi_iteration_kernel_naive<<< numBlocks, threadPerBlock >>>(A_d, x_odd_d, x_even_d, b_d, num_rows, ssd_d);
         }
         cudaDeviceSynchronize;
 

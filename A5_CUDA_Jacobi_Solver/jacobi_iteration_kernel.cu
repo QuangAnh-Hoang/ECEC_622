@@ -7,7 +7,7 @@ __global__ void jacobi_iteration_kernel_naive(const float *A, float *src, float 
 {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     
-    int i, j;
+    int i;
     float sum = 0.0;
     for (i = 0; i < size; i++) {
         if (i != tid) {
