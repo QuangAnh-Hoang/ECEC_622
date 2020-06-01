@@ -111,9 +111,12 @@ void compute_on_device(const matrix_t A, matrix_t gpu_naive_sol_x,
     dim3 numBlocks(ceil(num_rows/THREAD_BLOCK_SIZE), 1, 1);
 
     int num_iter = 0;
-    float *ssd;
-    float *ssd_d;
+    float mse;
+    float *ssd, *ssd_d;
     unsigned int done = 0;
+
+    fprintf(stderr, "Launching Kernel: Naive Iterative Jacobi solver\n");
+
     while (!done) {
         cudaMemset(ssd_d, 0, sizeof(float));
 
@@ -128,7 +131,9 @@ void compute_on_device(const matrix_t A, matrix_t gpu_naive_sol_x,
         cudaMemcpy(ssd, ssd_d, sizeof(float), cudaMemcpyDeviceToHost);
 
         num_iter++;
-        if (sqrt(ssd[0]) <= THRESHOLD) {
+        mse = sqrt(ssd[0]);
+        fprintf(stderr, "Iteration: %d. MSE = %f\n", num_iter, mse);
+        if (mse <= THRESHOLD) {
             done = 1;
         }
     }
