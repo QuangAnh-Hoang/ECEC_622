@@ -126,7 +126,7 @@ void compute_on_device(const matrix_t A, matrix_t gpu_naive_sol_x,
         else if ((num_iter % 2) == 1) {
             jacobi_iteration_kernel_naive<<< numBlocks, threadPerBlock >>>(A_d, x_odd_d, x_even_d, b_d, num_rows, ssd_d);
         }
-        cudaDeviceSynchronize;
+        cudaDeviceSynchronize();
 
         cudaMemcpy(ssd, ssd_d, sizeof(float), cudaMemcpyDeviceToHost);
 
