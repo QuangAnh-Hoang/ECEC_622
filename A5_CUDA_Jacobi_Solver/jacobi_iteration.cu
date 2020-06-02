@@ -106,6 +106,10 @@ void compute_on_device(const matrix_t A, matrix_t gpu_naive_sol_x,
     cudaMalloc((void **)&x_odd_d, num_rows*sizeof(float));
     cudaMemcpy(x_odd_d, B.elements, num_rows*sizeof(float), cudaMemcpyHostToDevice);
 
+    int *mutex_on_device = NULL;
+    cudaMalloc((void **)&mutex_on_device, sizeof(int));
+    cudaMemset(mutex_on_device, 0, sizeof(int));
+
     /* Setting up execution grid to launch kernel */
     dim3 threadPerBlock(THREAD_BLOCK_SIZE, 1, 1);
     dim3 numBlocks(ceil(num_rows/THREAD_BLOCK_SIZE), 1, 1);
@@ -121,10 +125,10 @@ void compute_on_device(const matrix_t A, matrix_t gpu_naive_sol_x,
         cudaMemset(ssd_d, 0, sizeof(float));
 
         if ((num_iter % 2) == 0) {
-            jacobi_iteration_kernel_naive<<< numBlocks, threadPerBlock >>>(A_d, x_even_d, x_odd_d, b_d, num_rows, ssd_d);
+            jacobi_iteration_kernel_naive<<< numBlocks, threadPerBlock >>>(A_d, x_even_d, x_odd_d, b_d, num_rows, ssd_d, mutex_on_device);
         }
         else if ((num_iter % 2) == 1) {
-            jacobi_iteration_kernel_naive<<< numBlocks, threadPerBlock >>>(A_d, x_odd_d, x_even_d, b_d, num_rows, ssd_d);
+            jacobi_iteration_kernel_naive<<< numBlocks, threadPerBlock >>>(A_d, x_odd_d, x_even_d, b_d, num_rows, ssd_d, mutex_on_device);
         }
         cudaDeviceSynchronize();
 

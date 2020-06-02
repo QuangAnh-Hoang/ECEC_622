@@ -3,8 +3,22 @@
 /* FIXME: Write the device kernels to solve the Jacobi iterations */
 
 
-__global__ void jacobi_iteration_kernel_naive(const float *A, float *src, float *dest, const float *b, const int size, float *ssd)
+__device__ void lock(int *mutex)
 {
+    while (atomicCAS(mutex, 0, 1) != 0);
+    return;
+}
+
+__device__ void unlock(int *mutex)
+{
+    atomicExch(mutex, 0);
+    return;
+}
+
+__global__ void jacobi_iteration_kernel_naive(const float *A, float *src, float *dest, const float *b, const int size, float *ssd, int *mutex)
+{
+    __shared__ float diff_per_row[THREAD_BLOCK_SIZE];
+
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     
     if (tid < size) {
@@ -18,10 +32,23 @@ __global__ void jacobi_iteration_kernel_naive(const float *A, float *src, float 
     
         dest[tid] = (b[tid] - sum)/A[tid*size + tid];
     
-        float local_diff = (dest[tid] - src[tid])*(dest[tid] - src[tid]);
+        diff_per_row[threadIdx.x] = (dest[tid] - src[tid])*(dest[tid] - src[tid]);
         __syncthreads();
-    
-        atomicAdd(ssd, local_diff);
+
+	i = blockDim.x/2;
+	while (i != 0) {
+	    if (threadIdx.x < i) {
+		diff_per_row[threadIdx.x] += diff_per_row[threadIdx.x + i];
+	    }
+	    __syncthreads();
+	    i /= 2;
+	}
+
+	if (threadIdx.x == 0) {
+	    lock(mutex);
+	    *ssd += diff_per_row[0];
+	    unlock(mutex);
+	}
     }
 
     return;
