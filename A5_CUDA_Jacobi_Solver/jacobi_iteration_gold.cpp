@@ -58,13 +58,13 @@ void compute_gold(const matrix_t A, matrix_t x, const matrix_t B)
         }
         num_iter++;
         mse = sqrt (ssd); /* Mean squared error. */
-        printf("Iteration: %d. MSE = %f\n", num_iter, mse); 
+        fprintf(stderr, "Iteration: %d. MSE = %f\n", num_iter, mse); 
         
         if (mse <= THRESHOLD)
             done = 1;
     }
 
-    printf("\nConvergence achieved after %d iterations \n", num_iter);
+    // printf("\nConvergence achieved after %d iterations \n", num_iter);
     free(new_x.elements);
 }
     

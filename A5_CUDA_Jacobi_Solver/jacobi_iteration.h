@@ -27,11 +27,12 @@ int check_if_diagonal_dominant(const matrix_t);
 matrix_t create_diagonally_dominant_matrix(unsigned int, unsigned int);
 void copy_matrix_to_device(matrix_t, const matrix_t);
 void copy_matrix_from_device(matrix_t, const matrix_t);
-void compute_on_device(const matrix_t, matrix_t, matrix_t, const matrix_t);
+void compute_on_device(const matrix_t, matrix_t, matrix_t, const matrix_t, float);
 int perform_simple_check(const matrix_t);
 void print_matrix(const matrix_t);
 float get_random_number(int, int);
 void check_CUDA_error(const char *);
+matrix_t convert_to_col_major(matrix_t);
 
 #endif /* _JACOBI_ITERATION_H_ */
 

@@ -1,61 +1,86 @@
 #include "jacobi_iteration.h"
 
-/* FIXME: Write the device kernels to solve the Jacobi iterations */
+/* Write the device kernels to solve the Jacobi iterations */
 
 
-__device__ void lock(int *mutex)
+__global__ void jacobi_iteration_kernel_naive(const matrix_t A, matrix_t src, matrix_t dest,
+    const matrix_t b, const int size, int *mutex, matrix_t ssd)
 {
-    while (atomicCAS(mutex, 0, 1) != 0);
-    return;
-}
+    __shared__ float sum_per_thread[THREAD_BLOCK_SIZE];
+    int tid = threadIdx.x + blockIdx.x*blockDim.x;
 
-__device__ void unlock(int *mutex)
-{
-    atomicExch(mutex, 0);
-    return;
-}
-
-__global__ void jacobi_iteration_kernel_naive(const float *A, float *src, float *dest, const float *b, const int size, float *ssd, int *mutex)
-{
-    __shared__ float diff_per_row[THREAD_BLOCK_SIZE];
-
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    
     if (tid < size) {
         int i;
-        float sum = 0.0;
+        float sum = 0;
         for (i = 0; i < size; i++) {
             if (i != tid) {
-                sum += A[tid*size + i] * src[i];
+                sum += A.elements[tid*size + i]*src.elements[i];
             }
         }
-    
-        dest[tid] = (b[tid] - sum)/A[tid*size + tid];
-    
-        diff_per_row[threadIdx.x] = (dest[tid] - src[tid])*(dest[tid] - src[tid]);
+        dest.elements[tid] = (b.elements[tid] - sum)/A.elements[tid*size + tid];
+        sum_per_thread[threadIdx.x] = (dest.elements[tid] - src.elements[tid])*(dest.elements[tid] - src.elements[tid]);
         __syncthreads();
 
-	i = blockDim.x/2;
-	while (i != 0) {
-	    if (threadIdx.x < i) {
-		diff_per_row[threadIdx.x] += diff_per_row[threadIdx.x + i];
-	    }
-	    __syncthreads();
-	    i /= 2;
-	}
+        i = blockDim.x / 2;
+        while (i != 0) {
+            if (threadIdx.x < i) {
+                sum_per_thread[threadIdx.x] += sum_per_thread[threadIdx.x + i];
+            }
+            __syncthreads();
+            i /= 2;
+        }
 
-	if (threadIdx.x == 0) {
-	    lock(mutex);
-	    *ssd += diff_per_row[0];
-	    unlock(mutex);
-	}
+        if (threadIdx.x == 0) {
+            while(atomicCAS(mutex, 0, 1) != 0);
+            ssd.elements[0] += sum_per_thread[0];
+            atomicExch(mutex, 0);
+        }
     }
 
     return;
 }
 
-__global__ void jacobi_iteration_kernel_optimized()
+__global__ void jacobi_iteration_kernel_optimized(const matrix_t col_A, matrix_t src, matrix_t dest, \
+    const matrix_t b, const int size, int *mutex, matrix_t ssd)
 {
+    __shared__ float A_tile[THREAD_BLOCK_SIZE];
+    __shared__ float b_tile[THREAD_BLOCK_SIZE];
+    __shared__ float curr_x;
+    __shared__ float sum_per_thread[THREAD_BLOCK_SIZE];
+
+    int tid = threadIdx.x + blockIdx.x*blockDim.x;
+
+    if (tid < size) {
+        int i;
+        float sum = 0;
+        for (i = 0; i < size; i++) {
+            A_tile[threadIdx.x] = col_A.elements[tid + i*size];
+            curr_x = src.elements[i];
+            if (i != tid) {
+                sum += A_tile[threadIdx.x]*curr_x;
+            }
+        }
+        b_tile[threadIdx.x] = b.elements[tid];
+        dest.elements[tid] = (b_tile[threadIdx.x] - sum)/col_A.elements[tid*size + tid];
+        sum_per_thread[threadIdx.x] = (dest.elements[tid] - src.elements[tid])*(dest.elements[tid] - src.elements[tid]);
+        __syncthreads();
+
+        i = blockDim.x / 2;
+        while (i != 0) {
+            if (threadIdx.x < i) {
+                sum_per_thread[threadIdx.x] += sum_per_thread[threadIdx.x + i];
+            }
+            __syncthreads();
+            i /= 2;
+        }
+
+        if (threadIdx.x == 0) {
+            while(atomicCAS(mutex, 0, 1) != 0);
+            ssd.elements[0] += sum_per_thread[0];
+            atomicExch(mutex, 0);
+        }
+    }
+
     return;
 }
 
