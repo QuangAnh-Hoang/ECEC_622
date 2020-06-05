@@ -1,6 +1,0 @@
-#!/bin/bash
-
-for i in {0..20}
-do
-    ./jacobi_iteration > 1024_performance
-done

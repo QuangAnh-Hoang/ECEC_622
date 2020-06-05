@@ -64,7 +64,7 @@ void compute_gold(const matrix_t A, matrix_t x, const matrix_t B)
             done = 1;
     }
 
-    // printf("\nConvergence achieved after %d iterations \n", num_iter);
+    fprintf(stderr, "\nConvergence achieved after %d iterations \n", num_iter);
     free(new_x.elements);
 }
     
@@ -84,7 +84,7 @@ void display_jacobi_solution(const matrix_t A, const matrix_t x, const matrix_t 
         diff += fabsf(line_sum - B.elements[i]);
 	}
 
-	printf("Average diff between LHS and RHS: %f \n", diff/(float)num_rows);
+	fprintf(stderr, "Average diff between LHS and RHS: %f \n", diff/(float)num_rows);
     return;
 }
 

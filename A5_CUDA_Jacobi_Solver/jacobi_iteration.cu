@@ -23,8 +23,8 @@
 
 int main(int argc, char **argv) 
 {
-    if (argc > 1) {
-		fprintf(stderr, "This program accepts no arguments\n");
+	if (argc > 1) {
+		fprintf(stderr,"This program accepts no arguments\n");
 		exit(EXIT_FAILURE);
 	}
 
@@ -41,7 +41,7 @@ int main(int argc, char **argv)
 
 	/* Generate diagonally dominant matrix */ 
     fprintf(stderr, "\nGenerating %d x %d system\n", MATRIX_SIZE, MATRIX_SIZE);
-    A = create_diagonally_dominant_matrix(MATRIX_SIZE, MATRIX_SIZE);
+	A = create_diagonally_dominant_matrix(MATRIX_SIZE, MATRIX_SIZE);
 	if (A.elements == NULL) {
         fprintf(stderr, "Error creating matrix\n");
         exit(EXIT_FAILURE);
@@ -66,22 +66,16 @@ int main(int argc, char **argv)
     compute_gold(A, reference_x, B);
 
     gettimeofday(&stop, NULL);
-    float ref_time = (float)(stop.tv_sec - start.tv_sec + (stop.tv_usec - start.tv_usec)/(float)1000000);
-
-#ifdef DEBUG
     display_jacobi_solution(A, reference_x, B); /* Display statistics */
-#endif
+    double ref_time = (double)(stop.tv_sec - start.tv_sec + \
+        (stop.tv_usec - start.tv_usec)/(double)1000000);
     
 	/* Compute Jacobi solution on device. Solutions are returned 
        in gpu_naive_solution_x and gpu_opt_solution_x. */
     fprintf(stderr, "\nPerforming Jacobi iteration on device\n");
-
-    compute_on_device(A, gpu_naive_solution_x, gpu_opt_solution_x, B, ref_time);
-
-#ifdef DEBUG
+	compute_on_device(A, gpu_naive_solution_x, gpu_opt_solution_x, B, ref_time);
     display_jacobi_solution(A, gpu_naive_solution_x, B); /* Display statistics */
-    display_jacobi_solution(A, gpu_opt_solution_x, B);
-#endif
+    display_jacobi_solution(A, gpu_opt_solution_x, B); 
     
     free(A.elements); 
 	free(B.elements); 
@@ -95,52 +89,61 @@ int main(int argc, char **argv)
 
 /* FIXME: Complete this function to perform Jacobi calculation on device */
 void compute_on_device(const matrix_t A, matrix_t gpu_naive_sol_x, 
-    matrix_t gpu_opt_sol_x, const matrix_t B, float ref_time)
+                       matrix_t gpu_opt_sol_x, const matrix_t B, double ref_time)
 {
     struct timeval start, stop;
 
     gettimeofday(&start, NULL);
 
-    matrix_t d_A = allocate_matrix_on_device(A);
-    check_CUDA_error("allocate matrix A on device");
-    copy_matrix_to_device(d_A, A);
-    check_CUDA_error("copy matrix A (host) to matrix d_A (device)");
+    /* Allocate matrices on device and transfer data from host to device */
+    double *d_A = NULL;
+    cudaMalloc((void **)&d_A, (MATRIX_SIZE*MATRIX_SIZE*sizeof(double)));
+    check_CUDA_error("Allocate matrix A on device");
+    cudaMemcpy(d_A, A.elements, (MATRIX_SIZE*MATRIX_SIZE*sizeof(double)), cudaMemcpyHostToDevice);
+    check_CUDA_error("Transfer matrix A's elements from host to device");
 
-    matrix_t d_b = allocate_matrix_on_device(B);
-    check_CUDA_error("allocate matrix b on device");
-    copy_matrix_to_device(d_b, B);
-    check_CUDA_error("copy matrix B (host) to matrix d_b (device)");
-    
-    matrix_t d_x_now = allocate_matrix_on_device(gpu_naive_sol_x);
-    check_CUDA_error("allocate matrix x_now on device");
-    
-    matrix_t d_x_next = allocate_matrix_on_device(gpu_naive_sol_x);
-    check_CUDA_error("allocate matrix x_next on device");
+    double *d_b = NULL;
+    cudaMalloc((void **)&d_b, (MATRIX_SIZE*sizeof(double)));
+    check_CUDA_error("Allocate matrix b on device");
+    cudaMemcpy(d_b, B.elements, (MATRIX_SIZE*sizeof(double)), cudaMemcpyHostToDevice);
+    check_CUDA_error("Transfer matrix b's elements from host to device");
+
+    double *d_x_now = NULL;
+    cudaMalloc((void **)&d_x_now, (MATRIX_SIZE*sizeof(double)));
+    check_CUDA_error("Allocate matrix x_now on device");
+    cudaMemcpy(d_x_now, B.elements, (MATRIX_SIZE*sizeof(double)), cudaMemcpyHostToDevice);
+    check_CUDA_error("Initialize matrix x_now's elements on device");
+
+    double *d_x_next = NULL;
+    cudaMalloc((void **)&d_x_next, (MATRIX_SIZE*sizeof(double)));
+    check_CUDA_error("Allocate matrix x_next on device");
+    cudaMemcpy(d_x_next, B.elements, (MATRIX_SIZE*sizeof(double)), cudaMemcpyHostToDevice);
+    check_CUDA_error("Initialize matrix x_next's elements on device");
+
+    double *d_ssd = NULL;
+    cudaMalloc((void **)&d_ssd, sizeof(double));
+    check_CUDA_error("Allocate pointer to SSD on device");
+    cudaMemset(d_ssd, 0, sizeof(double));
+    check_CUDA_error("Initialize SSD's value on device");
 
     int *mutex_on_device = NULL;
 	cudaMalloc((void **)&mutex_on_device, sizeof(int));
     cudaMemset(mutex_on_device, 0, sizeof(int));
     check_CUDA_error("allocate mutex on device");
 
-    matrix_t ssd = allocate_matrix_on_host(1, 1, 0);
-    matrix_t h_ssd = allocate_matrix_on_host(1, 1, 0);
-    matrix_t d_ssd = allocate_matrix_on_device(h_ssd);
-    check_CUDA_error("allocate 1x1 matrix SSD on device");
+    /* Set up execution grid */
+    dim3 threadPerBlock(THREAD_BLOCK_SIZE, 1);
+    dim3 numBlocks((MATRIX_SIZE + THREAD_BLOCK_SIZE - 1)/THREAD_BLOCK_SIZE, 1);
 
-    int threadPerBlock = THREAD_BLOCK_SIZE;
-    int numBlocks = MATRIX_SIZE/threadPerBlock;
-
-    int done = 0;
+    /* Launch kernel */
+    double mse, ssd;
     int num_iter = 0;
-
-/* ------------ */
-/* Naive kernel */
-/* ------------ */
-    fprintf(stderr, "Iterative Jacobi Solver: Naive\n");
+    int done = 0;
 
     while (!done) {
-        copy_matrix_to_device(d_ssd, h_ssd);
-        check_CUDA_error("[Naive] Reset SSD value on device");
+        ssd = 0;
+        cudaMemset(d_ssd, 0, sizeof(double));
+        check_CUDA_error("Reset SSD to zero on device");
 
         if (num_iter % 2) {
             jacobi_iteration_kernel_naive<<< numBlocks, threadPerBlock >>>\
@@ -150,37 +153,40 @@ void compute_on_device(const matrix_t A, matrix_t gpu_naive_sol_x,
             jacobi_iteration_kernel_naive<<< numBlocks, threadPerBlock >>>\
                 (d_A, d_x_now, d_x_next, d_b, MATRIX_SIZE, mutex_on_device, d_ssd);
         }
-        cudaDeviceSynchronize();
-        check_CUDA_error("[Naive] Launch Jacobi solver - naive kernel");
+        cudaError_t dev_sync = cudaDeviceSynchronize();
+        if (dev_sync != cudaSuccess) {
+            fprintf(stderr, "%s in %s at line %d\n", cudaGetErrorString(dev_sync),\
+                __FILE__, __LINE__);
+            exit(EXIT_FAILURE);
+        }
+
+        cudaMemcpy(&ssd, d_ssd, sizeof(double), cudaMemcpyDeviceToHost);
+        check_CUDA_error("Retrieve SSD value from device");
 
         num_iter++;
+        mse = sqrt(ssd);
+        fprintf(stderr, "[Naive] Iteration: %d. MSE = %0.8f\n", num_iter, mse);
 
-        copy_matrix_from_device(ssd, d_ssd);
-        check_CUDA_error("[Naive] Copy parallel-computed SSD value back to host");
-
-        fprintf(stderr, "[Naive] Iteration: %d. MSE = %f\n", num_iter, sqrt(ssd.elements[0]));
-
-        if (sqrt(ssd.elements[0]) <= THRESHOLD) {
+        if (mse <= THRESHOLD) {
+            fprintf(stderr, "The function has converged\n");
             done = 1;
         }
     }
 
     if (num_iter % 2) {
-        copy_matrix_from_device(gpu_naive_sol_x, d_x_next);
-        check_CUDA_error("[Naive] Copy x_next matrix back to gpu_naive_sol_x on host");
+        cudaMemcpy(gpu_naive_sol_x.elements, d_x_next, (MATRIX_SIZE*sizeof(double)), cudaMemcpyDeviceToHost);
     }
     else {
-        copy_matrix_from_device(gpu_naive_sol_x, d_x_now);
-        check_CUDA_error("[Naive] Copy x_now matrix back to gpu_naive_sol_x on host");
+        cudaMemcpy(gpu_naive_sol_x.elements, d_x_now, (MATRIX_SIZE*sizeof(double)), cudaMemcpyDeviceToHost);
     }
 
     gettimeofday(&stop, NULL);
-    float naive_time = (float)(stop.tv_sec - start.tv_sec + (stop.tv_usec - start.tv_usec)/(float)1000000);
+    double naive_time = (double)(stop.tv_sec - start.tv_sec + \
+        (stop.tv_usec - start.tv_usec)/(double)1000000);
 
-/* ---------------- */
-/* Optimized kernel */
-/* ---------------- */
-    fprintf(stderr, "Iterative Jacobi Solver: Optimized\n");
+    /*---------------------------------------------------*/
+    /*/ / / / / / / / / / / / / / / / / / / / / / / / / /*/
+    /*---------------------------------------------------*/
 
     gettimeofday(&start, NULL);
 
@@ -189,65 +195,71 @@ void compute_on_device(const matrix_t A, matrix_t gpu_naive_sol_x,
         fprintf(stderr, "[Opt] Fail to convert matrix A to column major\n");
         exit(EXIT_FAILURE);
     }
-    matrix_t d_col_A = allocate_matrix_on_device(col_A);
-    check_CUDA_error("[Opt] allocate column-major matrix A on device");
-    copy_matrix_to_device(d_col_A, col_A);
-    check_CUDA_error("[Opt] copy column-major A (host) to d_col_A (device)");
+    double *d_col_A = NULL;
+    cudaMalloc((void **)&d_col_A, (MATRIX_SIZE*MATRIX_SIZE*sizeof(double)));
+    check_CUDA_error("Allocate column-major matrix A on device");
+    cudaMemcpy(d_col_A, col_A.elements, (MATRIX_SIZE*MATRIX_SIZE*sizeof(double)), cudaMemcpyHostToDevice);
+    check_CUDA_error("Transfer column-major matrix A's elements from host to device");
 
-    copy_matrix_to_device(d_x_now, gpu_opt_sol_x);
-    check_CUDA_error("[Opt] Reset matrix x_now on device");
-    
-    copy_matrix_to_device(d_x_next, gpu_opt_sol_x);
-    check_CUDA_error("[Opt] Reset matrix x_next on device");
+    cudaMemcpy(d_x_now, B.elements, (MATRIX_SIZE*sizeof(double)), cudaMemcpyHostToDevice);
+    check_CUDA_error("Reset matrix x_now's elements on device");
 
-    done = 0;
+    cudaMemcpy(d_x_next, B.elements, (MATRIX_SIZE*sizeof(double)), cudaMemcpyHostToDevice);
+    check_CUDA_error("Reset matrix x_next's elements on device");
+
+    /* Launch kernel */
     num_iter = 0;
+    done = 0;
 
     while (!done) {
-        copy_matrix_to_device(d_ssd, h_ssd);
-        check_CUDA_error("[Opt] Reset SSD value on device");
+        ssd = 0;
+        cudaMemset(d_ssd, 0, sizeof(double));
+        check_CUDA_error("Reset SSD to zero on device");
 
         if (num_iter % 2) {
             jacobi_iteration_kernel_optimized<<< numBlocks, threadPerBlock >>>\
-                (d_col_A, d_x_next, d_x_now, d_b, MATRIX_SIZE, mutex_on_device, d_ssd);
+                (d_A, d_x_next, d_x_now, d_b, MATRIX_SIZE, mutex_on_device, d_ssd);
         }
         else {
             jacobi_iteration_kernel_optimized<<< numBlocks, threadPerBlock >>>\
-                (d_col_A, d_x_now, d_x_next, d_b, MATRIX_SIZE, mutex_on_device, d_ssd);
+                (d_A, d_x_now, d_x_next, d_b, MATRIX_SIZE, mutex_on_device, d_ssd);
         }
-        cudaDeviceSynchronize();
-        check_CUDA_error("[Opt] Launch Jacobi solver - optimized kernel");
+        cudaError_t dev_sync = cudaDeviceSynchronize();
+        if (dev_sync != cudaSuccess) {
+            fprintf(stderr, "%s in %s at line %d\n", cudaGetErrorString(dev_sync),\
+                __FILE__, __LINE__);
+            exit(EXIT_FAILURE);
+        }
+
+        cudaMemcpy(&ssd, d_ssd, sizeof(double), cudaMemcpyDeviceToHost);
+        check_CUDA_error("Retrieve SSD value from device");
 
         num_iter++;
+        mse = sqrt(ssd);
+        fprintf(stderr, "[Opt] Iteration: %d. MSE = %0.8f\n", num_iter, mse);
 
-        copy_matrix_from_device(ssd, d_ssd);
-        check_CUDA_error("[Opt] Copy parallel-computed SSD value back to host");
-
-        fprintf(stderr, "[Opt] Iteration: %d. MSE = %f\n", num_iter, sqrt(ssd.elements[0]));
-
-
-        if (sqrt(ssd.elements[0]) <= THRESHOLD) {
+        if (mse <= THRESHOLD) {
+            fprintf(stderr, "The function has converged\n");
             done = 1;
         }
     }
 
     if (num_iter % 2) {
-        copy_matrix_from_device(gpu_opt_sol_x, d_x_next);
-        check_CUDA_error("[Opt] Copy x_next matrix back to gpu_opt_sol_x on host");
+        cudaMemcpy(gpu_opt_sol_x.elements, d_x_next, (MATRIX_SIZE*sizeof(double)), cudaMemcpyDeviceToHost);
     }
     else {
-        copy_matrix_from_device(gpu_opt_sol_x, d_x_now);
-        check_CUDA_error("[Opt] Copy x_now matrix back to gpu_opt_sol_x on host");
+        cudaMemcpy(gpu_opt_sol_x.elements, d_x_now, (MATRIX_SIZE*sizeof(double)), cudaMemcpyDeviceToHost);
     }
 
     gettimeofday(&stop, NULL);
+    double opt_time = (double)(stop.tv_sec - start.tv_sec + \
+        (stop.tv_usec - start.tv_usec)/(double)1000000);
 
-    float opt_time = (float)(stop.tv_sec - start.tv_sec + (stop.tv_usec - start.tv_usec)/(float)1000000);
+    fprintf(stderr, "Naive implementation speedup = %0.6f\n", (ref_time/naive_time));
+    fprintf(stderr, "Optimized implementation speedup = %0.6f\n", (ref_time/opt_time));
 
-    fprintf(stderr, "Naive kernel's speedup = %0.6f\n", (float)(ref_time/naive_time));
-    fprintf(stderr, "Optimized kernel's speedup = %0.6f\n", (float)(ref_time/opt_time));
-
-    printf("%d\t%d\t%0.6f\t%0.6f", THREAD_BLOCK_SIZE, MATRIX_SIZE, (float)(ref_time/naive_time), (float)(ref_time/opt_time));
+    printf("%4d\t%4d\t%2.6f\t%2.6f\n", \
+        MATRIX_SIZE, THREAD_BLOCK_SIZE, (ref_time/naive_time), (ref_time/opt_time));
 
     cudaFree(&d_A);
     cudaFree(&d_col_A);
@@ -263,7 +275,7 @@ void compute_on_device(const matrix_t A, matrix_t gpu_naive_sol_x,
 matrix_t allocate_matrix_on_device(const matrix_t M)
 {
     matrix_t Mdevice = M;
-    int size = M.num_rows * M.num_columns * sizeof(float);
+    int size = M.num_rows * M.num_columns * sizeof(double);
     cudaMalloc((void **)&Mdevice.elements, size);
     return Mdevice;
 }
@@ -279,7 +291,7 @@ matrix_t allocate_matrix_on_host(int num_rows, int num_columns, int init)
     M.num_rows = num_rows;
     int size = M.num_rows * M.num_columns;
 		
-	M.elements = (float *)malloc(size * sizeof(float));
+	M.elements = (double *)malloc(size * sizeof(double));
 	for (unsigned int i = 0; i < size; i++) {
 		if (init == 0) 
             M.elements[i] = 0; 
@@ -293,7 +305,7 @@ matrix_t allocate_matrix_on_host(int num_rows, int num_columns, int init)
 /* Copy matrix to device */
 void copy_matrix_to_device(matrix_t Mdevice, const matrix_t Mhost)
 {
-    int size = Mhost.num_rows * Mhost.num_columns * sizeof(float);
+    int size = Mhost.num_rows * Mhost.num_columns * sizeof(double);
     Mdevice.num_rows = Mhost.num_rows;
     Mdevice.num_columns = Mhost.num_columns;
     cudaMemcpy(Mdevice.elements, Mhost.elements, size, cudaMemcpyHostToDevice);
@@ -303,7 +315,7 @@ void copy_matrix_to_device(matrix_t Mdevice, const matrix_t Mhost)
 /* Copy matrix from device to host */
 void copy_matrix_from_device(matrix_t Mhost, const matrix_t Mdevice)
 {
-    int size = Mdevice.num_rows * Mdevice.num_columns * sizeof(float);
+    int size = Mdevice.num_rows * Mdevice.num_columns * sizeof(double);
     cudaMemcpy(Mhost.elements, Mdevice.elements, size, cudaMemcpyDeviceToHost);
     return;
 }
@@ -313,7 +325,7 @@ void print_matrix(const matrix_t M)
 {
 	for (unsigned int i = 0; i < M.num_rows; i++) {
         for (unsigned int j = 0; j < M.num_columns; j++) {
-			fprintf(stderr, "%f ", M.elements[i * M.num_columns + j]);
+			fprintf(stderr, "%f ", M.elements[i * M.num_rows + j]);
         }
 		
         fprintf(stderr, "\n");
@@ -323,11 +335,11 @@ void print_matrix(const matrix_t M)
     return;
 }
 
-/* Returns a floating-point value between [min, max] */
-float get_random_number(int min, int max)
+/* Returns a doubleing-point value between [min, max] */
+double get_random_number(int min, int max)
 {
-    float r = rand()/(float)RAND_MAX;
-	return (float)floor((double)(min + (max - min + 1) * r));
+    double r = rand()/(double)RAND_MAX;
+	return (double)floor((double)(min + (max - min + 1) * r));
 }
 
 /* Check for errors in kernel execution */
@@ -349,7 +361,7 @@ matrix_t create_diagonally_dominant_matrix(unsigned int num_rows, unsigned int n
 	M.num_columns = num_columns;
 	M.num_rows = num_rows; 
 	unsigned int size = M.num_rows * M.num_columns;
-	M.elements = (float *)malloc(size * sizeof(float));
+	M.elements = (double *)malloc(size * sizeof(double));
     if (M.elements == NULL)
         return M;
 
@@ -360,7 +372,7 @@ matrix_t create_diagonally_dominant_matrix(unsigned int num_rows, unsigned int n
 	
 	/* Make diagonal entries large with respect to the entries on each row. */
 	for (i = 0; i < num_rows; i++) {
-		float row_sum = 0.0;		
+		double row_sum = 0.0;		
 		for (j = 0; j < num_columns; j++) {
 			row_sum += fabs(M.elements[i * M.num_rows + j]);
 		}
@@ -377,7 +389,7 @@ matrix_t convert_to_col_major(matrix_t M) {
     N.num_columns = M.num_rows;
     N.num_rows = M.num_columns;
     unsigned int size = N.num_columns * N.num_rows;
-    N.elements = (float *)malloc(size * sizeof(float));
+    N.elements = (double *)malloc(size * sizeof(double));
 
     if (N.elements == NULL) {
         return N;

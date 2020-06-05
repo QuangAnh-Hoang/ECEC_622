@@ -5,9 +5,9 @@
 #define MIN_NUMBER 2        /* Min number in the A and b matrices */
 #define MAX_NUMBER 10       /* Max number in the A and b matrices */
 
-#define THREAD_BLOCK_SIZE 128            /* Size of a thread block */
+#define THREAD_BLOCK_SIZE 64            /* Size of a thread block */
 
-#define MATRIX_SIZE 1024
+#define MATRIX_SIZE 2048
 #define NUM_COLUMNS MATRIX_SIZE         /* Number of columns in matrix A */
 #define NUM_ROWS MATRIX_SIZE            /* Number of rows in matrix A */
 
@@ -15,7 +15,7 @@
 typedef struct matrix_s {
     unsigned int num_columns;           /* Matrix width */
     unsigned int num_rows;              /* Matrix height */ 
-    float *elements;
+    double *elements;
 }  matrix_t;
 
 /* Function prototypes */
@@ -27,12 +27,12 @@ int check_if_diagonal_dominant(const matrix_t);
 matrix_t create_diagonally_dominant_matrix(unsigned int, unsigned int);
 void copy_matrix_to_device(matrix_t, const matrix_t);
 void copy_matrix_from_device(matrix_t, const matrix_t);
-void compute_on_device(const matrix_t, matrix_t, matrix_t, const matrix_t, float);
+void compute_on_device(const matrix_t, matrix_t, matrix_t, const matrix_t, double);
 int perform_simple_check(const matrix_t);
 void print_matrix(const matrix_t);
-float get_random_number(int, int);
+double get_random_number(int, int);
 void check_CUDA_error(const char *);
-matrix_t convert_to_col_major(matrix_t);
+matrix_t convert_to_col_major(matrix_t );
 
 #endif /* _JACOBI_ITERATION_H_ */
 
