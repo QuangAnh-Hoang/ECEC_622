@@ -2,7 +2,7 @@
 
 for i in {1..20}
 do
-	./jacobi_iteration >> 512_performance
+	./jacobi_iteration >> 2048_performance
 done
 
-echo "" >> 512_performance
+echo "" >> 2048_performance
